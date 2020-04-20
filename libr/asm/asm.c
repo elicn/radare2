@@ -155,13 +155,13 @@ static inline int r_asm_pseudo_fill(RAsmOp *op, char *input) {
 }
 
 static inline int r_asm_pseudo_incbin(RAsmOp *op, char *input) {
-	int bytes_read = 0;
+	size_t bytes_read = 0;
 	r_str_replace_char (input, ',', ' ');
 	// int len = r_str_word_count (input);
 	r_str_word_set0 (input);
 	//const char *filename = r_str_word_get0 (input, 0);
-	int skip = (int)r_num_math (NULL, r_str_word_get0 (input, 1));
-	int count = (int)r_num_math (NULL,r_str_word_get0 (input, 2));
+	size_t skip = (size_t)r_num_math (NULL, r_str_word_get0 (input, 1));
+	size_t count = (size_t)r_num_math (NULL,r_str_word_get0 (input, 2));
 	char *content = r_file_slurp (input, &bytes_read);
 	if (!content) {
 		eprintf ("Could not open '%s'.\n", input);
@@ -370,7 +370,7 @@ R_API int r_asm_set_bits(RAsm *a, int bits) {
 
 R_API bool r_asm_set_big_endian(RAsm *a, bool b) {
 	r_return_val_if_fail (a && a->cur, false);
-	a->big_endian = false; //little endian by default
+	a->big_endian = false; // little endian by default
 	switch (a->cur->endian) {
 	case R_SYS_ENDIAN_NONE:
 	case R_SYS_ENDIAN_BI:
@@ -617,8 +617,8 @@ R_API RAsmCode* r_asm_mdisassemble(RAsm *a, const ut8 *buf, int len) {
 	ut64 pc = a->pc;
 	RAsmOp op;
 	ut64 idx;
-	int ret, slen;
-	const int addrbytes = a->user ? ((RCore *)a->user)->io->addrbytes : 1;
+	size_t ret, slen;
+	const size_t addrbytes = a->user? ((RCore *)a->user)->io->addrbytes: 1;
 
 	if (!(acode = r_asm_code_new ())) {
 		return NULL;

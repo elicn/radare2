@@ -8,24 +8,22 @@ Originally based on work by and now in collaboration with pancake.
 Directory Hierarchy
 -------------------
 
- * new/:         New testsuite written in NodeJS.
+ * db/:          The tests sources
  * unit/:        Unit tests (written in C, using minunit).
- * bins/:        Sample binaries.
+ * fuzz/:        Fuzzing helper scripts
+ * bins/:        Sample binaries (fetched from the [external repository](https://github.com/radareorg/radare2-testbins))
 
 Requirements
 ------------
 
- * Radare2 installed (and in $PATH or set the R2 environment).
+ * Radare2 installed (and in `$PATH` or set the R2 environment).
  * Valgrind (optional).
- * nodeJS 8 or above
 
 Usage
 -----
 
  * To run *all* tests, use `make -k all`.
  * To execute only the unit tests use `make -k unit_tests`.
- * To execute only the regressions tests use `make -k js-tests`.
- * To execute and autofix a specific set of tests use `node node_modules/node-r2r/bin/r2r.js -i db/XXXX/YYYY` within new directory, this will provide a dialog in which you can ask the program to replace the expected output with the current output of radare2.
 
 Failure Levels
 --------------
@@ -90,15 +88,15 @@ Example tests for `db/asm/*`:
 Writing JSON tests
 ----------
 
-The JSON tests `db/new/json` are executed on 3 standard files (1 ELF, 1 MachO, 1 PE). The tests need to be working on the 3 files to pass.
+The JSON tests `db/json` are executed on 3 standard files (1 ELF, 1 MachO, 1 PE). The tests need to be working on the 3 files to pass.
 
 # Commands tests
 ----------------
 
-Example commands tests for the other `new/` folders:
+Example commands tests for the other `db/` folders:
 
 	NAME=test_db
-	FILE=/../bins/elf/ls
+	FILE=bins/elf/ls
 	CMDS=<<EXPECT
 	pd 4
 	EXPECT=<<RUN
@@ -119,11 +117,10 @@ Example commands tests for the other `new/` folders:
 You must end the test by adding RUN keyword
 
 Advices
-------------------
+-------
 
-* Never use shell pipes, use `~`
+* For portability reasons Do not use shell pipes, use `~`
 * dont use `pd` if not necessary, use `pi`
-
 
 License
 -------

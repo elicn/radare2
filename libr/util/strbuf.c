@@ -87,14 +87,35 @@ R_API bool r_strbuf_setbin(RStrBuf *sb, const ut8 *s, int l) {
 			sb->ptr = ptr;
 		}
 		memcpy (ptr, s, l);
-		*(ptr + l) = 0;
+		ptr[l] = 0;
 	} else {
 		R_FREE (sb->ptr);
-		sb->ptr = NULL;
 		memcpy (sb->buf, s, l);
 		sb->buf[l] = 0;
 	}
 	sb->len = l;
+	return true;
+}
+
+// TODO: there's room for optimizations here
+R_API bool r_strbuf_slice(RStrBuf *sb, int from, int len) {
+	r_return_val_if_fail (sb && from >= 0 && len >= 0, false);
+	if (from < 1 && len >= sb->len) {
+		return false;
+	}
+	const char *s = r_strbuf_get (sb);
+	const char *fr = r_str_ansi_chrn (s, from + 1);
+	const char *to = r_str_ansi_chrn (s, from + len + 1);
+	char *r = r_str_newlen (fr, to - fr);
+	r_strbuf_fini (sb);
+	r_strbuf_init (sb);
+	if (from >= len) {
+		r_strbuf_set (sb, "");
+		free (r);
+		return false;
+	}
+	r_strbuf_set (sb, r);
+	free (r);
 	return true;
 }
 
@@ -279,6 +300,15 @@ R_API char *r_strbuf_drain(RStrBuf *sb) {
 	return ret;
 }
 
+R_API char *r_strbuf_drain_nofree(RStrBuf *sb) {
+	r_return_val_if_fail (sb, NULL);
+	char *ret = sb->ptr ? sb->ptr : strdup (sb->buf);
+	sb->ptr = NULL;
+	sb->len = 0;
+	sb->buf[0] = '\0';
+	return ret;
+}
+
 R_API void r_strbuf_free(RStrBuf *sb) {
 	r_strbuf_fini (sb);
 	free (sb);
@@ -287,5 +317,7 @@ R_API void r_strbuf_free(RStrBuf *sb) {
 R_API void r_strbuf_fini(RStrBuf *sb) {
 	if (sb) {
 		R_FREE (sb->ptr);
+		sb->len = 0;
+		sb->buf[0] = '\0';
 	}
 }

@@ -79,10 +79,6 @@ R_LIB_VERSION_HEADER(r_core);
 #define RTR_PROTOCOL_HTTP 3
 #define RTR_PROTOCOL_UNIX 4
 
-#define RTR_RAP_OPEN   0x01
-#define RTR_RAP_CMD    0x07
-#define RTR_RAP_REPLY  0x80
-
 #define RTR_MAX_HOSTS 255
 
 /* visual mode */
@@ -315,8 +311,8 @@ typedef struct r_core_t {
 	bool break_loop;
 	RList *undos;
 	bool binat;
-	bool fixedbits;
-	bool fixedarch;
+	bool fixedbits; // will be true when using @b:
+	bool fixedarch; // will be true when using @a:
 	bool fixedblock;
 	char *table_query;
 	int sync_index; // used for http.sync and T=
@@ -333,13 +329,13 @@ typedef struct r_core_t {
 
 	RMainCallback r_main_radare2;
 	// int (*r_main_radare2)(int argc, char **argv);
-	int (*r_main_rafind2)(int argc, char **argv);
-	int (*r_main_radiff2)(int argc, char **argv);
-	int (*r_main_rabin2)(int argc, char **argv);
-	int (*r_main_rarun2)(int argc, char **argv);
-	int (*r_main_ragg2)(int argc, char **argv);
-	int (*r_main_rasm2)(int argc, char **argv);
-	int (*r_main_rax2)(int argc, char **argv);
+	int (*r_main_rafind2)(int argc, const char **argv);
+	int (*r_main_radiff2)(int argc, const char **argv);
+	int (*r_main_rabin2)(int argc, const char **argv);
+	int (*r_main_rarun2)(int argc, const char **argv);
+	int (*r_main_ragg2)(int argc, const char **argv);
+	int (*r_main_rasm2)(int argc, const char **argv);
+	int (*r_main_rax2)(int argc, const char **argv);
 } RCore;
 
 // maybe move into RAnal
@@ -388,6 +384,7 @@ R_API void r_core_fini(RCore *c);
 R_API void r_core_wait(RCore *core);
 R_API RCore *r_core_ncast(ut64 p);
 R_API RCore *r_core_cast(void *p);
+R_API bool r_core_bin_load_structs(RCore *core, const char *file);
 R_API int r_core_config_init(RCore *core);
 R_API void r_core_config_update(RCore *core);
 R_API void r_core_parse_radare2rc(RCore *r);
@@ -397,9 +394,7 @@ R_API int r_core_lines_initcache (RCore *core, ut64 start_addr, ut64 end_addr);
 R_API int r_core_lines_currline (RCore *core);
 R_API void r_core_prompt_loop(RCore *core);
 R_API ut64 r_core_pava(RCore *core, ut64 addr);
-R_API void run_pending_anal(RCore *core);
 R_API int r_core_cmd(RCore *core, const char *cmd, int log);
-R_API void r_core_cmd_repeat(RCore *core, int next);
 R_API int r_core_cmd_task_sync(RCore *core, const char *cmd, bool log);
 R_API char *r_core_editor (const RCore *core, const char *file, const char *str);
 R_API int r_core_fgets(char *buf, int len);
@@ -442,6 +437,7 @@ R_API bool r_core_prevop_addr(RCore* core, ut64 start_addr, int numinstrs, ut64*
 R_API ut64 r_core_prevop_addr_force(RCore *core, ut64 start_addr, int numinstrs);
 R_API bool r_core_visual_hudstuff(RCore *core);
 R_API int r_core_visual_classes(RCore *core);
+R_API int r_core_visual_anal_classes(RCore *core);
 R_API int r_core_visual_types(RCore *core);
 R_API int r_core_visual(RCore *core, const char *input);
 R_API int r_core_visual_graph(RCore *core, RAGraph *g, RAnalFunction *_fcn, int is_interactive);
@@ -465,6 +461,7 @@ R_API void r_core_set_asmqjmps(RCore *core, char *str, size_t len, int i);
 R_API char* r_core_add_asmqjmp(RCore *core, ut64 addr);
 
 R_API void r_core_anal_type_init(RCore *core);
+R_API void r_core_link_stroff(RCore *core, RAnalFunction *fcn);
 R_API void r_core_anal_inflags (RCore *core, const char *glob);
 R_API int cmd_anal_objc (RCore *core, const char *input, bool auto_anal);
 R_API void r_core_anal_cc_init(RCore *core);
@@ -472,7 +469,7 @@ R_API void r_core_anal_paths(RCore *core, ut64 from, ut64 to, bool followCalls, 
 R_API void r_core_anal_esil_graph(RCore *core, const char *expr);
 
 R_API void r_core_list_io(RCore *core);
-R_API RListInfo *r_listinfo_new (char *name, RInterval pitv, RInterval vitv, int perm, char *extra);
+R_API RListInfo *r_listinfo_new (const char *name, RInterval pitv, RInterval vitv, int perm, const char *extra);
 R_API void r_listinfo_free (RListInfo *info);
 /* visual marks */
 R_API void r_core_visual_mark_seek(RCore *core, ut8 ch);
@@ -506,7 +503,7 @@ R_API int r_core_file_list(RCore *core, int mode);
 R_API int r_core_file_binlist(RCore *core);
 R_API bool r_core_file_bin_raise(RCore *core, ut32 num);
 R_API int r_core_seek_delta(RCore *core, st64 addr);
-R_API int r_core_extend_at(RCore *core, ut64 addr, int size);
+R_API bool r_core_extend_at(RCore *core, ut64 addr, int size);
 R_API bool r_core_write_at(RCore *core, ut64 addr, const ut8 *buf, int size);
 R_API int r_core_write_op(RCore *core, const char *arg, char op);
 R_API ut8* r_core_transform_op(RCore *core, const char *arg, char op);
@@ -558,7 +555,7 @@ R_API char *r_core_cmd_str(RCore *core, const char *cmd);
 R_API int r_core_cmd_foreach(RCore *core, const char *cmd, char *each);
 R_API int r_core_cmd_foreach3(RCore *core, const char *cmd, char *each);
 R_API char *r_core_op_str(RCore *core, ut64 addr);
-R_API RAnalOp *r_core_op_anal(RCore *core, ut64 addr);
+R_API RAnalOp *r_core_op_anal(RCore *core, ut64 addr, RAnalOpMask mask);
 R_API char *r_core_disassemble_instr(RCore *core, ut64 addr, int l);
 R_API char *r_core_disassemble_bytes(RCore *core, ut64 addr, int b);
 
@@ -566,11 +563,7 @@ R_API char *r_core_disassemble_bytes(RCore *core, ut64 addr, int b);
 R_API RList *r_core_get_func_args(RCore *core, const char *func_name);
 R_API void r_core_print_func_args(RCore *core);
 R_API char *resolve_fcn_name(RAnal *anal, const char * func_name);
-
 R_API int r_core_get_stacksz(RCore *core, ut64 from, ut64 to);
-
-/* cmd_type.c */
-R_API void r_core_link_stroff(RCore *core, RAnalFunction *fcn);
 
 /* anal.c */
 R_API RAnalOp* r_core_anal_op(RCore *core, ut64 addr, int mask);
@@ -594,7 +587,6 @@ R_API void r_core_agraph_print(RCore *core, int use_utf, const char *input);
 R_API bool r_core_esil_cmd(RAnalEsil *esil, const char *cmd, ut64 a1, ut64 a2);
 R_API int r_core_esil_step(RCore *core, ut64 until_addr, const char *until_expr, ut64 *prev_addr, bool stepOver);
 R_API int r_core_esil_step_back(RCore *core);
-R_API int r_core_anal_bb(RCore *core, RAnalFunction *fcn, ut64 at, int head);
 R_API ut64 r_core_anal_get_bbaddr(RCore *core, ut64 addr);
 R_API bool r_core_anal_bb_seek(RCore *core, ut64 addr);
 R_API int r_core_anal_fcn(RCore *core, ut64 at, ut64 from, int reftype, int depth);
@@ -603,7 +595,7 @@ R_API void r_core_anal_autoname_all_fcns(RCore *core);
 R_API void r_core_anal_autoname_all_golang_fcns(RCore *core);
 R_API int r_core_anal_fcn_list(RCore *core, const char *input, const char *rad);
 R_API char *r_core_anal_fcn_name(RCore *core, RAnalFunction *fcn);
-R_API int r_core_anal_fcn_list_size(RCore *core);
+R_API ut64 r_core_anal_fcn_list_size(RCore *core);
 R_API void r_core_anal_fcn_labels(RCore *core, RAnalFunction *fcn, int rad);
 R_API int r_core_anal_fcn_clean(RCore *core, ut64 addr);
 R_API int r_core_print_bb_custom(RCore *core, RAnalFunction *fcn);
@@ -618,7 +610,7 @@ R_API RList *r_core_anal_fcn_get_calls (RCore *core, RAnalFunction *fcn); // get
 
 /*tp.c*/
 R_API void r_core_anal_type_match(RCore *core, RAnalFunction *fcn);
-R_API RStrBuf *var_get_constraint (RAnal *a, RAnalVar *var);
+R_API RStrBuf *var_get_constraint(RAnal *a, RAnalFunction *fcn, RAnalVar *var);
 
 /* asm.c */
 #define R_MIDFLAGS_SHOW 1
@@ -669,7 +661,6 @@ R_API ut64 r_core_bin_impaddr(RBin *bin, int va, const char *name);
 
 // XXX - this is kinda hacky, maybe there should be a way to
 // refresh the bin environment without specific calls?
-R_API int r_core_bin_refresh_strings(RCore *core);
 R_API int r_core_pseudo_code (RCore *core, const char *input);
 
 /* gdiff.c */
@@ -718,6 +709,7 @@ R_API void r_core_recover_vars(RCore *core, RAnalFunction *fcn, bool argonly);
 #define R_CORE_BIN_ACC_SOURCE 0x800000
 #define R_CORE_BIN_ACC_HASHES 0x10000000
 #define R_CORE_BIN_ACC_TRYCATCH 0x20000000
+#define R_CORE_BIN_ACC_SECTIONS_MAPPING 0x40000000
 #define R_CORE_BIN_ACC_ALL	0x504FFF
 
 #define R_CORE_PRJ_FLAGS	0x0001
@@ -923,7 +915,7 @@ R_API void r_core_autocomplete_free(RCoreAutocomplete *obj);
 R_API void r_core_autocomplete_reload (RCore *core);
 R_API RCoreAutocomplete *r_core_autocomplete_find(RCoreAutocomplete *parent, const char* cmd, bool exact);
 R_API bool r_core_autocomplete_remove(RCoreAutocomplete *parent, const char* cmd);
-R_API void r_core_anal_propagate_noreturn(RCore *core);
+R_API void r_core_anal_propagate_noreturn(RCore *core, ut64 addr);
 
 /* PLUGINS */
 extern RCorePlugin r_core_plugin_java;

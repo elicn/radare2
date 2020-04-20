@@ -21,14 +21,6 @@ typedef enum {
 
 typedef int (*RStrRangeCallback) (void *, int);
 
-static inline void r_str_rmch(char *s, char ch) {
-	for (;*s; s++) {
-		if (*s==ch) {
-			memmove (s, s + 1, strlen (s));
-		}
-	}
-}
-
 #define R_STR_ISEMPTY(x) (!(x) || !*(x))
 #define R_STR_ISNOTEMPTY(x) ((x) && *(x))
 #define R_STR_DUP(x) ((x) ? strdup ((x)) : NULL)
@@ -74,6 +66,7 @@ R_API int r_str_rwx(const char *str);
 R_API int r_str_replace_ch(char *s, char a, char b, bool g);
 R_API int r_str_replace_char(char *s, int a, int b);
 R_API int r_str_replace_char_once(char *s, int a, int b);
+R_API void r_str_remove_char(char *str, char c);
 R_API const char *r_str_rwx_i(int rwx);
 R_API int r_str_fmtargs(const char *fmt);
 R_API char *r_str_arg_escape(const char *arg);
@@ -112,11 +105,10 @@ R_API char *r_str_word_get_first(const char *string);
 R_API void r_str_trim(char *str);
 R_API char *r_str_trim_dup(const char *str);
 R_API char *r_str_trim_lines(char *str);
-R_API char *r_str_trim_head(char *str);
-R_API const char *r_str_trim_ro(const char *str);
-R_API const char *r_str_trim_wp(const char *str);
-R_API char *r_str_trim_tail(char *str);
-R_API char *r_str_trim_head_tail(char *str);
+R_API void r_str_trim_head(char *str);
+R_API const char *r_str_trim_head_ro(const char *str);
+R_API const char *r_str_trim_head_wp(const char *str);
+R_API void r_str_trim_tail(char *str);
 R_API ut32 r_str_hash(const char *str);
 R_API ut64 r_str_hash64(const char *str);
 R_API char *r_str_trim_nc(char *str);
@@ -151,16 +143,20 @@ R_API int r_str_do_until_token(str_operation op, char *str, const char tok);
 R_API void r_str_reverse(char *str);
 R_API int r_str_re_match(const char *str, const char *reg);
 R_API int r_str_re_replace(const char *str, const char *reg, const char *sub);
+R_API int r_str_path_unescape(char *path);
+R_API char *r_str_path_escape(const char *path);
 R_API int r_str_unescape(char *buf);
 R_API char *r_str_escape(const char *buf);
 R_API char *r_str_escape_dot(const char *buf);
 R_API char *r_str_escape_latin1(const char *buf, bool show_asciidot, bool esc_bslash, bool colors);
 R_API char *r_str_escape_utf8(const char *buf, bool show_asciidot, bool esc_bslash);
+R_API char *r_str_escape_utf8_keep_printable(const char *buf, bool show_asciidot, bool esc_bslash); // like escape_utf8 but leaves valid \uXXXX chars directly in utf-8
 R_API char *r_str_escape_utf16le(const char *buf, int buf_size, bool show_asciidot, bool esc_bslash);
 R_API char *r_str_escape_utf32le(const char *buf, int buf_size, bool show_asciidot, bool esc_bslash);
 R_API char *r_str_escape_utf16be(const char *buf, int buf_size, bool show_asciidot, bool esc_bslash);
 R_API char *r_str_escape_utf32be(const char *buf, int buf_size, bool show_asciidot, bool esc_bslash);
 R_API void r_str_byte_escape(const char *p, char **dst, int dot_nl, bool default_dot, bool esc_bslash);
+R_API char *r_str_format_msvc_argv(size_t argc, const char **argv);
 R_API void r_str_uri_decode(char *buf);
 R_API char *r_str_uri_encode(const char *buf);
 R_API char *r_str_utf16_decode(const ut8 *s, int len);
@@ -200,6 +196,8 @@ R_API char *r_str_list_join(RList *str, const char *sep);
 R_API const char *r_str_sep(const char *base, const char *sep);
 R_API const char *r_str_rsep(const char *base, const char *p, const char *sep);
 R_API char *r_str_donut(int size);
+R_API char *r_str_version(const char *program);
+
 #ifdef __cplusplus
 }
 #endif

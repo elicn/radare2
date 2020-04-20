@@ -231,6 +231,7 @@ static RList* sections(RBinFile *bf) {
 				break;
 			case PT_LOAD:
 				ptr->name = r_str_newf ("LOAD%d", n++);
+				ptr->perm |= R_PERM_R;
 				found_load = 1;
 				ptr->add = true;
 				break;
@@ -503,10 +504,11 @@ static RList* symbols(RBinFile *bf) {
 		if (!symbol[i].size) {
 			continue;
 		}
-		ptr = Elf_(_r_bin_elf_convert_symbol) (bin, &symbol[i], "imp.%s");
+		ptr = Elf_(_r_bin_elf_convert_symbol) (bin, &symbol[i], "%s");
 		if (!ptr) {
 			break;
 		}
+		ptr->is_imported = true;
 		// special case where there is not entry in the plt for the import
 		if (ptr->vaddr == UT32_MAX) {
 			ptr->paddr = 0;
@@ -846,9 +848,8 @@ static RList* patch_relocs(RBin *b) {
 	RIO *io = NULL;
 	RBinObject *obj = NULL;
 	struct Elf_(r_bin_elf_obj_t) *bin = NULL;
-	RIOMap *g = NULL, *s = NULL;
+	RIOMap *g = NULL;
 	HtUU *relocs_by_sym;
-	SdbListIter *iter;
 	RBinElfReloc *relcs = NULL;
 	RBinInfo *info;
 	int cdsz;
@@ -876,10 +877,12 @@ static RList* patch_relocs(RBin *b) {
 	info = obj ? obj->info: NULL;
 	cdsz = info? (info->bits == 64? 8: info->bits == 32? 4: info->bits == 16 ? 4: 0): 0;
 
-	ls_foreach (io->maps, iter, s) {
-		if (s->itv.addr > offset) {
-			offset = s->itv.addr;
-			g = s;
+	void **it;
+	r_pvector_foreach (&io->maps, it) {
+		RIOMap *map = *it;
+		if (map->itv.addr > offset) {
+			offset = map->itv.addr;
+			g = map;
 		}
 	}
 	if (!g) {

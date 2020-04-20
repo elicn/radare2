@@ -1,5 +1,5 @@
-include ../global.mk
 include ../config-user.mk
+include ../global.mk
 # for EXT_EXE
 include ../libr/config.mk
 include ../mk/platform.mk
@@ -20,7 +20,7 @@ CAPSTONE_CFLAGS?=-g
 # CAPSTONE_MAKEFLAGS?=CAPSTONE_ARCHS="arm aarch64"
 
 GIT?=git
-ifeq ($(shell type wget && echo 1),1)
+ifeq ($(shell type wget 2> /dev/null && echo 1),1)
 WGET?=wget -c --no-check-certificate -O
 else
 WGET?=curl -o
@@ -29,12 +29,12 @@ endif
 # NOTE: when you update TS_TIP or TS_BRA, also update them in shlr/meson.build
 TS_URL=https://github.com/tree-sitter/tree-sitter.git
 TS_BRA=master
-TS_TIP=9f77afcd1ff050855259f83fcf50056ad842a790
+TS_TIP=f049ba350f3f6019ce9a1cbb0975ebd154ef7ad3
 
 # NOTE: when you update SHELLPARSER_TIP or SHELLPARSER_BRA, also update them in shlr/meson.build
 SHELLPARSER_URL=https://github.com/ret2libc/radare2-shell-parser.git
 SHELLPARSER_BRA=master
-SHELLPARSER_TIP=dfb12492f4052b5a6c64fc626e9bf65ccb7b5522
+SHELLPARSER_TIP=3d82cad9d865cb6e65364f66f038d1d1d4d8818a
 
 ifeq ($(CS_RELEASE),1)
 CS_VER=4.0.1
@@ -49,10 +49,10 @@ CS_ARCHIVE=https://$(CS_URL_BASE)/archive
 CS_UPD=20190515
 # NOTE: when you update CS_TIP or CS_BRA, also update them in shlr/meson.build
 ifeq ($(CS_NEXT),1)
-CS_TIP=caacf11822683d8a317efee727c428db254670a9
+CS_TIP=0de88ed3fdc0ab1f1e2a6eada3cdd93e18057a0f
 CS_BRA=next
 else
-CS_TIP=a22aef2a18e6f6d8d30af4a1595af17337408e45
+CS_TIP=c80b6aaf973c822d82565f25e9b2e2c0102626fa
 CS_BRA=v4
 endif
 ifeq ($(CS_COMMIT_ARCHIVE),1)
@@ -329,6 +329,7 @@ else
 	cd ../../radare2-webui/www/m && git pull ; npm i ; $(MAKE) release
 endif
 
+ifeq ($(USE_TREESITTER),1)
 tree-sitter-build: tree-sitter/libtree-sitter.$(EXT_AR)
 
 tree-sitter/libtree-sitter.$(EXT_AR): tree-sitter/lib/src/lib.o
@@ -353,6 +354,12 @@ radare2-shell-parser/src/parser.o: radare2-shell-parser-sync
 radare2-shell-parser-sync: tree-sitter-sync
 	"$(SHELL)" clone_3rd_repo.sh radare2-shell-parser "${SHELLPARSER_URL}" "${SHELLPARSER_BRA}" "${SHELLPARSER_TIP}"
 
+SHLRS+=tree-sitter/libtree-sitter.a
+SHLRS+=radare2-shell-parser/libshell-parser.a
+else
+tree-sitter-build:
+radare2-shell-parser-build:
+endif
 
 www-sync-m sync-www-m: ../../radare2-webui/dist/m
 	cp -rf ../../radare2-webui/dist/m www/m.tmp
@@ -394,8 +401,6 @@ SHLRS+=grub/libgrubfs.a
 SHLRS+=java/libr_java.a
 SHLRS+=lz4/liblz4.a
 SHLRS+=qnx/lib/libqnxr.a
-SHLRS+=tree-sitter/libtree-sitter.a
-SHLRS+=radare2-shell-parser/libshell-parser.a
 #SHLRS+=sdb/src/libsdb.a
 #SHLRS+=tcc/libr_tcc.a
 SHLRS+=windbg/libr_windbg.a
@@ -404,10 +409,19 @@ SHLRS+=zip/librz.a
 libr_shlr.${EXT_AR}:
 	rm -rf .libr
 	mkdir .libr
+ifeq ($(CC),emcc)
+	for LIB in ${SHLRS} ; do \
+		if [ -f "$${LIB}" ]; then emcc -emit-llvm -nostdlib -Wl,--whole-archive -o .libr/$$(basename $${LIB}.a).o $${LIB} ; fi ; \
+	done
+	${AR} crs $@ .libr/*.o
+	$(RANLIB) $@
+else
 	for LIB in ${SHLRS} ; do \
 		if [ -f "$${LIB}" ]; then ${PARTIALLD} -o .libr/$$(basename $${LIB}.a).o $${LIB} ; fi ; \
 	done
 	${AR} crs $@ .libr/*.o
+	$(RANLIB) $@
+endif
 
 .PHONY: spp
 

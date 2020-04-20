@@ -1,7 +1,7 @@
 r_asm_sources = [
   'asm.c',
-  'op.c',
-  'code.c',
+  'aop.c',
+  'acode.c',
   'p/asm_6502.c',
   'p/asm_6502_cs.c',
   'p/asm_8051.c',
@@ -183,7 +183,7 @@ r_asm_inc = [
 
 r_asm = library('r_asm', r_asm_sources,
   include_directories: r_asm_inc,
-  c_args: library_cflags + ['-DR_ASM_SRC=1'],
+  c_args: library_cflags,
   dependencies: [
     r_util_dep,
     r_syscall_dep,

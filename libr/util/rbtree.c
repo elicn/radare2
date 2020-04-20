@@ -36,23 +36,30 @@ static inline RBNode *zig_zag(RBNode *x, int dir, RBNodeSum sum) {
 	return z;
 }
 
-static inline RBIter bound_iter(RBNode *x, void *data, RBComparator cmp, bool upper, bool backward, void *user) {
+static inline RBIter bound_iter(RBNode *x, void *data, RBComparator cmp, bool upper, void *user) {
 	RBIter it;
 	it.len = 0;
 	while (x) {
 		int d = cmp (data, x, user);
-		if (upper ? d < 0 : d <= 0) {
-			if (!backward) {
+
+		if (d == 0) {
+			it.path[it.len++] = x;
+			return it;
+		}
+
+		if (d < 0) {
+			if (!upper) {
 				it.path[it.len++] = x;
 			}
 			x = x->child[0];
 		} else {
-			if (backward) {
+			if (upper) {
 				it.path[it.len++] = x;
 			}
 			x = x->child[1];
 		}
 	}
+
 	return it;
 }
 
@@ -248,15 +255,15 @@ R_API bool r_rbtree_aug_insert(RBNode **root, void *data, RBNode *node, RBCompar
 
 // returns true if the sum has been updated, false if node has not been found
 R_API bool r_rbtree_aug_update_sum(RBNode *root, void *data, RBNode *node, RBComparator cmp, void *cmp_user, RBNodeSum sum) {
-	int dep = 0;
+	size_t dep = 0;
 	RBNode *path[R_RBTREE_MAX_HEIGHT];
 	RBNode *cur = root;
 	for (;;) {
-		if (dep >= R_RBTREE_MAX_HEIGHT) {
-			eprintf ("Too deep tree\n");
+		if (!cur) {
 			return false;
 		}
-		if (!cur) {
+		if (dep >= R_RBTREE_MAX_HEIGHT) {
+			eprintf ("Too deep tree\n");
 			return false;
 		}
 		path[dep] = cur;
@@ -264,13 +271,8 @@ R_API bool r_rbtree_aug_update_sum(RBNode *root, void *data, RBNode *node, RBCom
 		if (cur == node) {
 			break;
 		}
-
 		int d = cmp (data, cur, cmp_user);
-		if (d < 0) {
-			cur = cur->child[0];
-		} else {
-			cur = cur->child[1];
-		}
+		cur = cur->child[(d < 0)? 0: 1];
 	}
 
 	for (; dep > 0; dep--) {
@@ -323,12 +325,8 @@ R_API RBNode *r_rbtree_lower_bound(RBNode *x, void *data, RBComparator cmp, void
 	return ret;
 }
 
-R_API RBIter r_rbtree_lower_bound_backward(RBNode *root, void *data, RBComparator cmp, void *user) {
-	return bound_iter (root, data, cmp, false, true, user);
-}
-
 R_API RBIter r_rbtree_lower_bound_forward(RBNode *root, void *data, RBComparator cmp, void *user) {
-	return bound_iter (root, data, cmp, false, false, user);
+	return bound_iter (root, data, cmp, false, user);
 }
 
 R_API RBNode *r_rbtree_upper_bound(RBNode *x, void *data, RBComparator cmp, void *user) {
@@ -336,9 +334,9 @@ R_API RBNode *r_rbtree_upper_bound(RBNode *x, void *data, RBComparator cmp, void
 	while (x) {
 		int d = cmp (data, x, user);
 		if (d < 0) {
-			ret = x;
 			x = x->child[0];
 		} else {
+			ret = x;
 			x = x->child[1];
 		}
 	}
@@ -346,11 +344,7 @@ R_API RBNode *r_rbtree_upper_bound(RBNode *x, void *data, RBComparator cmp, void
 }
 
 R_API RBIter r_rbtree_upper_bound_backward(RBNode *root, void *data, RBComparator cmp, void *user) {
-	return bound_iter (root, data, cmp, true, true, user);
-}
-
-R_API RBIter r_rbtree_upper_bound_forward(RBNode *root, void *data, RBComparator cmp, void *user) {
-	return bound_iter (root, data, cmp, true, false, user);
+	return bound_iter (root, data, cmp, true, user);
 }
 
 static RBIter _first(RBNode *x, int dir) {
@@ -481,7 +475,10 @@ R_API bool r_rbtree_cont_delete(RContRBTree *tree, void *data, RContRBCmp cmp, v
 }
 
 R_API void *r_rbtree_cont_find(RContRBTree *tree, void *data, RContRBCmp cmp, void *user) {
-	r_return_val_if_fail (tree && cmp && tree->root, NULL);
+	r_return_val_if_fail (tree && cmp, NULL);
+	if (!tree->root) {
+		return NULL;
+	}
 	RCRBCmpWrap cmp_wrap = { cmp, NULL, user };
 	// RBNode search_node = tree->root->node;
 	RBNode *result_node = r_rbtree_find (&tree->root->node, data, cont_rbtree_search_cmp_wrapper, &cmp_wrap);

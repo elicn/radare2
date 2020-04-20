@@ -197,7 +197,7 @@ static void inferior_abort_handler(int pid) {
 }
 #endif
 
-static void trace_me (void) {
+static void trace_me(void) {
 #if __APPLE__
 	r_sys_signal (SIGTRAP, SIG_IGN); //NEED BY STEP
 #endif
@@ -219,6 +219,7 @@ static void trace_me (void) {
 }
 #endif
 
+#if __APPLE__ && !__POWERPC__
 static void handle_posix_error(int err) {
 	switch (err) {
 	case 0:
@@ -236,6 +237,7 @@ static void handle_posix_error(int err) {
 		break;
 	}
 }
+#endif
 
 static RRunProfile* _get_run_profile(RIO *io, int bits, char **argv) {
 	char *expr = NULL;
@@ -524,7 +526,7 @@ static bool __plugin_open(RIO *io, const char *file, bool many) {
 
 #include <r_core.h>
 static int get_pid_of(RIO *io, const char *procname) {
-	RCore *c = io->user;
+	RCore *c = io->corebind.core;
 	if (c && c->dbg && c->dbg->h) {
 		RListIter *iter;
 		RDebugPid *proc;
@@ -587,10 +589,11 @@ static RIODesc *__open(RIO *io, const char *file, int rw, int mode) {
 				return NULL;
 			}
 			if ((ret = _plugin->open (io, uri, rw, mode))) {
+				RCore *c = io->corebind.core;
 				RIOW32Dbg *w32 = (RIOW32Dbg *)ret->data;
 				w32->winbase = winbase;
 				w32->pi.dwThreadId = wintid;
-				*(RIOW32Dbg *)((RCore *)io->user)->dbg->user = *w32;
+				*(RIOW32Dbg *)(c->dbg->user) = *w32;
 			}
 #elif __APPLE__
 			sprintf (uri, "smach://%d", pid);		//s is for spawn
@@ -617,8 +620,9 @@ static RIODesc *__open(RIO *io, const char *file, int rw, int mode) {
 			ret = _plugin->open (io, uri, rw, mode);
 #if __WINDOWS__
 			if (ret) {
+				RCore *c = io->corebind.core;
 				RIOW32Dbg *w32 = (RIOW32Dbg *)ret->data;
-				*(RIOW32Dbg *)((RCore *)io->user)->dbg->user = *w32;
+				*(RIOW32Dbg *)(c->dbg->user) = *w32;
 			}
 #endif
 		}

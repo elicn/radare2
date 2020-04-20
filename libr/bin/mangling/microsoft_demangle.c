@@ -1333,12 +1333,12 @@ static EDemanglerErr parse_microsoft_mangled_name(char *sym, char **demangled_na
 		err = eDemanglerErrUnsupportedMangling;
 		break;
 
-#define SET_ACCESS_MODIFIER(letter, flag_set, modifier_str) { \
-	case letter: \
+#define SET_ACCESS_MODIFIER(letter, flag_set, modifier_str) \
+	case letter: { \
 		access_modifier = modifier_str; \
 		(flag_set) = 1; \
 		break; \
-}
+	}
 	/* Functions */
 	SET_ACCESS_MODIFIER ('E', is_implicit_this_pointer, "private virtual");
 	SET_ACCESS_MODIFIER ('F', is_implicit_this_pointer, "private virtual");
@@ -1607,6 +1607,7 @@ static EDemanglerErr parse_microsoft_rtti_mangled_name(char *sym, char **demangl
 	int len = get_namespace_and_name (sym + 2, &type_code_str, NULL);
 	if (!len) {
 		err = eDemanglerErrUncorrectMangledSymbol;
+		free (type_code_str.type_str);
 		goto parse_microsoft_rtti_mangled_name_err;
 	}
 

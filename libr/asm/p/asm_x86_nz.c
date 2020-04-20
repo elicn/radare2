@@ -624,6 +624,28 @@ static int opxor(RAsm *a, ut8 * data, const Opcode *op) {
 	return process_1byte_op (a, data, op, 0x30);
 }
 
+static int opneg(RAsm *a, ut8 * data, const Opcode *op) {
+    is_valid_registers (op);
+    int l = 0;
+
+    if (op->operands[0].type & OT_GPREG) {
+        if (op->operands[0].type & OT_WORD) {
+            data[l++] = 0x66;
+        } else if (op->operands[0].type & OT_QWORD)  {
+            data[l++] = 0x48;
+        }
+
+        if (op->operands[0].type & OT_BYTE) {
+            data[l++] = 0xf6;
+        } else {
+            data[l++] = 0xf7;
+        }
+        data[l++] = 0xd8 | op->operands[0].reg;
+        return l;
+    }
+    return -1;
+}
+
 static int opnot(RAsm *a, ut8 * data, const Opcode *op) {
 	is_valid_registers (op);
 	int l = 0;
@@ -1776,8 +1798,13 @@ static int opmov(RAsm *a, ut8 *data, const Opcode *op) {
 		}
 		immediate = op->operands[1].immediate * op->operands[1].sign;
 		if (op->operands[0].type & OT_GPREG && !(op->operands[0].type & OT_MEMORY)) {
-			if (a->bits == 64 && ((op->operands[0].type & OT_QWORD) | (op->operands[1].type & OT_QWORD))) {
-				if (!(op->operands[1].type & OT_CONSTANT) && op->operands[1].extended) {
+			if ((op->operands[0].type & OT_DWORD) &&
+			    immediate > UT32_MAX && immediate < 0xffffffff80000000ULL /* -0x80000000 */) {
+				return -1;
+			}
+			bool imm32in64 = false;
+			if (a->bits == 64 && (op->operands[0].type & OT_QWORD)) {
+				if (op->operands[0].extended) {
 					data[l++] = 0x49;
 				} else {
 					data[l++] = 0x48;
@@ -1794,12 +1821,11 @@ static int opmov(RAsm *a, ut8 *data, const Opcode *op) {
 				data[l++] = 0xb0 | op->operands[0].reg;
 				data[l++] = immediate;
 			} else {
-				if (a->bits == 64 &&
-					((op->operands[0].type & OT_QWORD) |
-					(op->operands[1].type & OT_QWORD)) &&
-					immediate < UT32_MAX) {
-						data[l++] = 0xc7;
-				 		data[l++] = 0xc0 | op->operands[0].reg;
+				if (a->bits == 64 && (op->operands[0].type & OT_QWORD) &&
+				    (immediate <= ST32_MAX || immediate >= 0xffffffff80000000ULL /* -0x80000000 */)) {
+					data[l++] = 0xc7;
+					data[l++] = 0xc0 | op->operands[0].reg;
+					imm32in64 = true;
 				} else {
 					data[l++] = 0xb8 | op->operands[0].reg;
 				}
@@ -1809,7 +1835,9 @@ static int opmov(RAsm *a, ut8 *data, const Opcode *op) {
 					data[l++] = immediate >> 16;
 					data[l++] = immediate >> 24;
 				}
-				if (a->bits == 64 && immediate > UT32_MAX) {
+				if (a->bits == 64 &&
+				    (((op->operands[0].type & OT_QWORD) && !imm32in64) ||
+				     (immediate > UT32_MAX && immediate < 0xffffffff80000000ULL /* -0x80000000 */))) {
 					data[l++] = immediate >> 32;
 					data[l++] = immediate >> 40;
 					data[l++] = immediate >> 48;
@@ -2262,6 +2290,28 @@ static int opmov(RAsm *a, ut8 *data, const Opcode *op) {
 	return l;
 }
 
+// Only for MOV r64, imm64
+static int opmovabs(RAsm *a, ut8 *data, const Opcode *op) {
+	if (!(a->bits == 64 && (op->operands[0].type & OT_GPREG) && !(op->operands[0].type & OT_MEMORY) &&
+	      (op->operands[0].type & OT_QWORD) && (op->operands[1].type & OT_CONSTANT))) {
+		return -1;
+	}
+	int l = 0;
+	int byte_shift;
+	ut64 immediate;
+	if (op->operands[0].extended) {
+		data[l++] = 0x49;
+	} else {
+		data[l++] = 0x48;
+	}
+	data[l++] = 0xb8 | op->operands[0].reg;
+	immediate = op->operands[1].immediate * op->operands[1].sign;
+	for (byte_shift = 0; byte_shift < 8; byte_shift++) {
+		data[l++] = immediate >> (byte_shift * 8);
+	}
+	return l;
+}
+
 static int opmul(RAsm *a, ut8 *data, const Opcode *op) {
 	is_valid_registers (op);
 	int l = 0;
@@ -2364,6 +2414,10 @@ static int oppush(RAsm *a, ut8 *data, const Opcode *op) {
 				data[l++] = 0x41;
 			}
 			ut8 base = 0x50;
+			if (op->operands[0].reg == X86R_RIP) {
+				eprintf ("Invalid register\n");
+				return -1;
+			}
 			data[l++] = base + op->operands[0].reg;
 		}
 	} else if (op->operands[0].type & OT_MEMORY) {
@@ -4313,8 +4367,10 @@ LookupTable oplookup[] = {
 	{"movsw", 0, NULL, 0x66a5, 2},
 	{"movzx", 0, &opmovx, 0},
 	{"movsx", 0, &opmovx, 0},
+	{"movabs", 0, &opmovabs, 0},
 	{"mul", 0, &opmul, 0},
 	{"mwait", 0, NULL, 0x0f01c9, 3},
+	{"neg", 0, &opneg, 0},
 	{"nop", 0, NULL, 0x90, 1},
 	{"not", 0, &opnot, 0},
 	{"or", 0, &opor, 0},

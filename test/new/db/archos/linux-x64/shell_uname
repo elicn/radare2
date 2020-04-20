@@ -1,8 +1,0 @@
-NAME='uname'
-FILE=-
-CMDS=<<EXPECT
-!uname
-EXPECT=<<RUN
-Linux
-RUN
-

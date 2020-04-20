@@ -1,6 +1,0 @@
-NAME=multiple files opened
-FILE=- - -
-CMDS=o~?
-EXPECT=<<RUN
-3
-RUN

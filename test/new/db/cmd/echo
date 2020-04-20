@@ -1,9 +1,0 @@
-NAME=t/echo
-FILE=-
-EXPECT=<<EOF
-hello world
-EOF
-CMDS=<<EOF
-?e hello world
-EOF
-RUN

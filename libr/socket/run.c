@@ -162,15 +162,16 @@ static char *getstr(const char *src) {
 		{
 			char *pat = strchr (src + 1, '@');
 			if (pat) {
-				int i, len, rep;
+				size_t len;
+				long i, rep;
 				*pat++ = 0;
-				rep = atoi (src + 1);
+				rep = strtol (src + 1, NULL, 10);
 				len = strlen (pat);
 				if (rep > 0) {
 					char *buf = malloc (rep);
 					if (buf) {
 						for (i = 0; i < rep; i++) {
-							buf[i] = pat[i%len];
+							buf[i] = pat[i % len];
 						}
 					}
 					return buf;
@@ -185,7 +186,8 @@ static char *getstr(const char *src) {
 		int msg_len = strlen (msg);
 		if (msg_len > 0) {
 			msg [msg_len - 1] = 0;
-			char *ret = r_str_trim_tail (r_sys_cmd_str (msg, NULL, NULL));
+			char *ret = r_sys_cmd_str (msg, NULL, NULL);
+			r_str_trim_tail (ret);
 			free (msg);
 			return ret;
 		}
@@ -193,10 +195,15 @@ static char *getstr(const char *src) {
 		return strdup ("");
 		}
 	case '!':
-		return r_str_trim_tail (r_sys_cmd_str (src + 1, NULL, NULL));
+		{
+		char *a = r_sys_cmd_str (src + 1, NULL, NULL);
+		r_str_trim_tail (a);
+		return a;
+		}
 	case ':':
 		if (src[1] == '!') {
-			ret = r_str_trim_tail (r_sys_cmd_str (src + 1, NULL, NULL));
+			ret = r_sys_cmd_str (src + 1, NULL, NULL);
+			r_str_trim_tail (ret); // why no head :?
 		} else {
 			ret = strdup (src);
 		}
@@ -433,7 +440,7 @@ R_API int r_run_parsefile(RRunProfile *p, const char *b) {
 	return 0;
 }
 
-R_API bool r_run_parseline(RRunProfile *p, char *b) {
+R_API bool r_run_parseline(RRunProfile *p, const char *b) {
 	int must_free = false;
 	char *e = strchr (b, '=');
 	if (!e || *b == '#') {
@@ -543,7 +550,7 @@ R_API bool r_run_parseline(RRunProfile *p, char *b) {
 			return false;
 		}
 		for (;;) {
-			if (!fgets (buf, sizeof (buf) - 1, fd)) {
+			if (!fgets (buf, sizeof (buf), fd)) {
 				break;
 			}
 			if (feof (fd)) {

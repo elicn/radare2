@@ -91,11 +91,9 @@ R_API RList *r_w32_dbg_maps(RDebug *);
 /* begin of debugger code */
 #if DEBUGGER
 
-#if !__WINDOWS__ || (!__APPLE__ && defined(WAIT_ON_ALL_CHILDREN))
+#if !__WINDOWS__ && !(__linux__ && !defined(WAIT_ON_ALL_CHILDREN))
 static int r_debug_handle_signals(RDebug *dbg) {
-#if __linux__
-	return linux_handle_signals (dbg);
-#elif __KFBSD__
+#if __KFBSD__
 	return bsd_handle_signals (dbg);
 #else
 	return -1;
@@ -201,11 +199,19 @@ static int r_debug_native_continue_syscall (RDebug *dbg, int pid, int num) {
 
 #if !__WINDOWS__ && !__APPLE__ && !__BSD__
 /* Callback to trigger SIGINT signal */
-static void r_debug_native_stop(RDebug *dbg) {
+static void interrupt_process(RDebug *dbg) {
 	r_debug_kill (dbg, dbg->pid, dbg->tid, SIGINT);
 	r_cons_break_pop ();
 }
 #endif
+
+static int r_debug_native_stop(RDebug *dbg) {
+#if __linux__
+	return linux_stop_threads (dbg, dbg->reason.tid);
+#else
+	return 0;
+#endif
+}
 
 /* TODO: specify thread? */
 /* TODO: must return true/false */
@@ -231,7 +237,7 @@ static int r_debug_native_continue(RDebug *dbg, int pid, int tid, int sig) {
 	}
 	/* SIGINT handler for attached processes: dbg.consbreak (disabled by default) */
 	if (dbg->consbreak) {
-		r_cons_break_push ((RConsBreak)r_debug_native_stop, dbg);
+		r_cons_break_push ((RConsBreak)interrupt_process, dbg);
 	}
 
 	if (dbg->continue_all_threads && dbg->n_threads) {
@@ -328,24 +334,24 @@ static RDebugReasonType r_debug_native_wait(RDebug *dbg, int pid) {
 			RCore *core = dbg->corebind.core;
 			bool autoload_pdb = dbg->corebind.cfggeti (core, "pdb.autoload");
 			if (autoload_pdb) {
-				dbg->corebind.cmdf (core, "o %s 0x%p", ((PLIB_ITEM)(r->lib))->Path, ((PLIB_ITEM)(r->lib))->BaseOfDll);
-				char *o_res = dbg->corebind.cmdstrf (core, "o~+%s", ((PLIB_ITEM)(r->lib))->Path);
+				PLIB_ITEM lib = r->lib;
+				dbg->corebind.cmdf (core, "\"o \\\"%s\\\" 0x%p\"", lib->Path, lib->BaseOfDll);
+				char *o_res = dbg->corebind.cmdstrf (core, "o~+%s", lib->Name);
 				int fd = atoi (o_res);
 				free (o_res);
-				char *pdb_path = dbg->corebind.cmdstr (core, "i~pdb");
-				if (*pdb_path == 0) {
-					eprintf ("Failure...\n");
-					dbg->corebind.cmd (core, "i");
-				} else {
-					pdb_path = strchr (pdb_path, ' ') + 1;
-					dbg->corebind.cmdf (core, "idp");
+				if (fd) {
+					char *pdb_file = dbg->corebind.cmdstr (core, "i~dbg_file");
+					if (pdb_file && (r_str_trim (pdb_file), *pdb_file)) {
+						if (!r_file_exists (pdb_file + 9)) {
+							dbg->corebind.cmdf (core, "idpd");
+						}
+						dbg->corebind.cmdf (core, "idp");
+					}
+					dbg->corebind.cmdf (core, "o-%d", fd);
 				}
-				free (pdb_path);
-				dbg->corebind.cmdf (core, "o-%d", fd);
 			}
 			r_debug_info_free (r);
 		} else {
-			//eprintf ("Loading unknown library.\n");
 			r_cons_printf ("Loading unknown library.\n");
 			r_cons_flush ();
 		}
@@ -442,13 +448,7 @@ static RDebugReasonType r_debug_native_wait(RDebug *dbg, int pid) {
 	}
 
 	reason = linux_dbg_wait (dbg, dbg->tid);
-	if (reason == R_DEBUG_REASON_NEW_TID) {
-		RDebugInfo *r = r_debug_native_info (dbg, "");
-		if (r) {
-			eprintf ("(%d) Created thread %d\n", r->pid, r->tid);
-			r_debug_info_free (r);
-		}
-	} else if (reason == R_DEBUG_REASON_EXIT_TID) {
+	if (reason == R_DEBUG_REASON_EXIT_TID) {
 		RDebugInfo *r = r_debug_native_info (dbg, "");
 		if (r) {
 			eprintf ("(%d) Finished thread %d Exit code\n", r->pid, r->tid);
@@ -456,7 +456,6 @@ static RDebugReasonType r_debug_native_wait(RDebug *dbg, int pid) {
 		}
 	}
 
-	dbg->reason.tid = pid;
 	dbg->reason.type = reason;
 	return reason;
 }
@@ -640,11 +639,9 @@ static RList *r_debug_native_threads (RDebug *dbg, int pid) {
 #elif __WINDOWS__
 	return w32_thread_list (dbg, pid, list);
 #elif __linux__
-	return linux_thread_list (pid, list);
+	return linux_thread_list (dbg, pid, list);
 #else
-	eprintf ("TODO: list threads\n");
-	r_list_free (list);
-	return NULL;
+	return bsd_thread_list (dbg, pid, list);
 #endif
 }
 
@@ -740,12 +737,8 @@ static int r_debug_native_reg_write (RDebug *dbg, int type, const ut8* buf, int 
 		return w32_reg_write (dbg, type, buf, size);
 #elif __linux__
 		return linux_reg_write (dbg, type, buf, size);
-#elif __KFBSD__
-		return (0 == ptrace (PT_SETDBREGS, dbg->pid,
-			(caddr_t)buf, sizeof (struct dbreg)));
 #else
-		//eprintf ("TODO: No support for write DRX registers\n");
-		return false;
+		return bsd_reg_write (dbg, type, buf, size);
 #endif
 #else // i386/x86-64
 		return false;
@@ -757,18 +750,24 @@ static int r_debug_native_reg_write (RDebug *dbg, int type, const ut8* buf, int 
 		return w32_reg_write (dbg, type, buf, size);
 #elif __linux__
 		return linux_reg_write (dbg, type, buf, size);
-#elif __sun || __NetBSD__ || __KFBSD__ || __OpenBSD__ || __DragonFly__
+#elif __sun
 		int ret = ptrace (PTRACE_SETREGS, dbg->pid,
 			(void*)(size_t)buf, sizeof (R_DEBUG_REG_T));
 		if (sizeof (R_DEBUG_REG_T) < size)
 			size = sizeof (R_DEBUG_REG_T);
-		return (ret != 0) ? false: true;
+		return ret == 0;
 #else
-#warning r_debug_native_reg_write not implemented
+		return bsd_reg_write (dbg, type, buf, size);
 #endif
 	} else if (type == R_REG_TYPE_FPU) {
 #if __linux__
 		return linux_reg_write (dbg, type, buf, size);
+#elif __APPLE__
+		return false;
+#elif __WINDOWS__
+		return false;
+#else
+		return bsd_reg_write (dbg, type, buf, size);
 #endif
 	} //else eprintf ("TODO: reg_write_non-gpr (%d)\n", type);
 	return false;
@@ -1449,23 +1448,23 @@ static bool arm64_hwbp_del (RDebug *dbg, RBreakpoint *bp, RBreakpointItem *b) {
  * we only handle the case for hardware breakpoints here. otherwise,
  * we let the caller handle the work.
  */
-static int r_debug_native_bp (RBreakpoint *bp, RBreakpointItem *b, bool set) {
+static int r_debug_native_bp(RBreakpoint *bp, RBreakpointItem *b, bool set) {
 	RDebug *dbg = bp->user;
 	if (b && b->hw) {
 #if __i386__ || __x86_64__
-	return set
-		? drx_add (dbg, bp, b)
-		: drx_del (dbg, bp, b);
+		return set
+			? drx_add (dbg, bp, b)
+			: drx_del (dbg, bp, b);
 #elif __arm64__ || __aarch64__
-# if __linux__
-	return set
-		? arm64_hwbp_add (dbg, bp, b)
-		: arm64_hwbp_del (dbg, bp, b);
-# endif
+#if __linux__
+		return set
+			? arm64_hwbp_add (dbg, bp, b)
+			: arm64_hwbp_del (dbg, bp, b);
+#endif
 #elif __arm__
-	return set
-		? arm32_hwbp_add (dbg, bp, b)
-		: arm32_hwbp_del (dbg, bp, b);
+		return set
+			? arm32_hwbp_add (dbg, bp, b)
+			: arm32_hwbp_del (dbg, bp, b);
 #endif
 	}
 	return false;
@@ -1655,6 +1654,7 @@ RDebugPlugin r_debug_plugin_native = {
 	.init = &r_debug_native_init,
 	.step = &r_debug_native_step,
 	.cont = &r_debug_native_continue,
+	.stop = &r_debug_native_stop,
 	.contsc = &r_debug_native_continue_syscall,
 	.attach = &r_debug_native_attach,
 	.detach = &r_debug_native_detach,

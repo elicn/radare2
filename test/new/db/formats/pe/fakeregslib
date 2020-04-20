@@ -1,8 +1,0 @@
-NAME=PE: corkami fakeregslib.dll - open
-FILE=../bins/pe/fakeregslib.dll
-EXPECT=<<EOF
-EOF
-CMDS=<<EOF
-q!
-EOF
-RUN

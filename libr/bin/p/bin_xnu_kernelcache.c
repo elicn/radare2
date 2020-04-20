@@ -262,6 +262,7 @@ static RPrelinkRange *get_prelink_info_range_from_mach0(struct MACH0_(obj_t) *ma
 
 	RPrelinkRange *prelink_range = R_NEW0 (RPrelinkRange);
 	if (!prelink_range) {
+		R_FREE (sections);
 		return NULL;
 	}
 
@@ -529,6 +530,7 @@ static RList *carve_kexts(RKernelCacheObj *obj) {
 		ut64 text_end = text_start + kext->text_range.size;
 
 		if (text_start == text_end) {
+			r_kext_free (kext);
 			continue;
 		}
 
@@ -1851,20 +1853,15 @@ static ut64 iterate_rebase_list(RBuffer *cache_buf, ut64 multiplier, ut64 start_
 }
 
 static void swizzle_io_read(RKernelCacheObj *obj, RIO *io) {
-	if (!io || !io->desc || !io->desc->plugin) {
-		return;
-	}
-
+	r_return_if_fail (io && io->desc && io->desc->plugin);
 	RIOPlugin *plugin = io->desc->plugin;
 	obj->original_io_read = plugin->read;
 	plugin->read = &kernelcache_io_read;
 }
 
 static int kernelcache_io_read(RIO *io, RIODesc *fd, ut8 *buf, int count) {
-	if (!io) {
-		return -1;
-	}
-	RCore *core = (RCore*) io->user;
+	r_return_val_if_fail (io, -1);
+	RCore *core = (RCore*) io->corebind.core;
 
 	if (!core || !core->bin || !core->bin->binfiles) {
 		return -1;

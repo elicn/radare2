@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2009-2019 - pancake */
+/* radare - LGPL - Copyright 2009-2020 - pancake */
 
 #include "r_list.h"
 #include "r_config.h"
@@ -192,7 +192,7 @@ static void cmd_open_bin(RCore *core, const char *input) {
 		break;
 	case '.': // "ob."
 		{
-			const char *arg = r_str_trim_ro (input + 2);
+			const char *arg = r_str_trim_head_ro (input + 2);
 			ut64 at = core->offset;
 			if (*arg) {
 				at = r_num_math (core->num, arg);
@@ -263,12 +263,19 @@ static void cmd_open_bin(RCore *core, const char *input) {
 			}
 			free (arg);
 		} else {
-			RList *files = r_id_storage_list (core->io->files);
+			RList *ofiles = r_id_storage_list (core->io->files);
 			RIODesc *desc;
 			RListIter *iter;
-			r_list_foreach (files, iter, desc) {
+			RList *files = r_list_newf (NULL);
+			r_list_foreach (ofiles, iter, desc) {
+				r_list_append (files, (void*)(size_t)desc->fd);
+			}
+		
+			void *_fd;
+			r_list_foreach (files, iter, _fd) {
+				int fd = (size_t)_fd;
 				RBinOptions opt;
-				r_bin_options_init (&opt, desc->fd, core->offset, 0, core->bin->rawstr);
+				r_bin_options_init (&opt, fd, core->offset, 0, core->bin->rawstr);
 				r_bin_open_io (core->bin, &opt);
 				r_core_cmd0 (core, ".ies*");
 				break;
@@ -343,7 +350,7 @@ static void cmd_open_bin(RCore *core, const char *input) {
 			r_bin_file_delete_all (core->bin);
 		} else {
 			ut32 id;
-			value = r_str_trim_ro (input + 2);
+			value = r_str_trim_head_ro (input + 2);
 			if (!value) {
 				eprintf ("Invalid argument\n");
 				break;
@@ -393,9 +400,7 @@ static void cmd_open_bin(RCore *core, const char *input) {
 
 // TODO: discuss the output format
 static void map_list(RIO *io, int mode, RPrint *print, int fd) {
-	SdbListIter *iter;
-	RIOMap *map;
-	if (!io || !io->maps || !print || !print->cb_printf) {
+	if (!io || !print || !print->cb_printf) {
 		return;
 	}
 	if (mode == 'j') {
@@ -403,7 +408,10 @@ static void map_list(RIO *io, int mode, RPrint *print, int fd) {
 	}
 	bool first = true;
 	char *om_cmds = NULL;
-	ls_foreach_prev (io->maps, iter, map) {			//this must be prev (LIFO)
+
+	void **it;
+	r_pvector_foreach_prev (&io->maps, it) { //this must be prev (LIFO)
+		RIOMap *map = *it;
 		if (fd >= 0 && map->fd != fd) {
 			continue;
 		}
@@ -456,28 +464,30 @@ static void map_list(RIO *io, int mode, RPrint *print, int fd) {
 }
 
 static void cmd_omfg(RCore *core, const char *input) {
-	SdbListIter *iter;
-	RIOMap *map;
-	input = r_str_trim_ro (input);
+	input = r_str_trim_head_ro (input);
 	if (input) {
 		int perm = *input
 		? (*input == '+' || *input == '-')
 			? r_str_rwx (input + 1)
 			: r_str_rwx (input)
 		: 7;
+		void **it;
 		switch (*input) {
 		case '+':
-			ls_foreach (core->io->maps, iter, map) {
+			r_pvector_foreach (&core->io->maps, it) {
+				RIOMap *map = *it;
 				map->perm |= perm;
 			}
 			break;
 		case '-':
-			ls_foreach (core->io->maps, iter, map) {
+			r_pvector_foreach (&core->io->maps, it) {
+				RIOMap *map = *it;
 				map->perm &= ~perm;
 			}
 			break;
 		default:
-			ls_foreach (core->io->maps, iter, map) {
+			r_pvector_foreach (&core->io->maps, it) {
+				RIOMap *map = *it;
 				map->perm = perm;
 			}
 			break;
@@ -486,9 +496,7 @@ static void cmd_omfg(RCore *core, const char *input) {
 }
 
 static void cmd_omf(RCore *core, const char *input) {
-	SdbListIter *iter;
-	RIOMap *map;
-	char *arg = strdup (r_str_trim_ro (input));
+	char *arg = strdup (r_str_trim_head_ro (input));
 	if (!arg) {
 		return;
 	}
@@ -498,7 +506,9 @@ static void cmd_omf(RCore *core, const char *input) {
 		*sp++ = 0;
 		int id = r_num_math (core->num, arg);
 		int perm = (*sp)? r_str_rwx (sp): R_PERM_RWX;
-		ls_foreach (core->io->maps, iter, map) {
+		void **it;
+		r_pvector_foreach (&core->io->maps, it) {
+			RIOMap *map = *it;
 			if (map->id == id) {
 				map->perm = perm;
 				break;
@@ -507,7 +517,9 @@ static void cmd_omf(RCore *core, const char *input) {
 	} else {
 		// change perms of current map
 		int perm = (arg && *arg)? r_str_rwx (arg): R_PERM_RWX;
-		ls_foreach (core->io->maps, iter, map) {
+		void **it;
+		r_pvector_foreach (&core->io->maps, it) {
+			RIOMap *map = *it;
 			if (r_itv_contain (map->itv, core->offset)) {
 				map->perm = perm;
 			}
@@ -521,9 +533,9 @@ static void r_core_cmd_omt(RCore *core, const char *arg) {
 
 	r_table_set_columnsf (t, "nnnnnnnss", "id", "fd", "pa", "pa_end", "size", "va", "va_end", "perm", "name", NULL);
 
-	SdbListIter *iter;
-	RIOMap *m;
-	ls_foreach_prev (core->io->maps, iter, m) {
+	void **it;
+	r_pvector_foreach (&core->io->maps, it) {
+		RIOMap *m = *it;
 		ut64 va = r_itv_begin (m->itv);
 		ut64 va_end = r_itv_end (m->itv);
 		ut64 pa = m->delta;
@@ -695,7 +707,7 @@ static void cmd_open_map(RCore *core, const char *input) {
 					r_cons_printf ("%s\n", map->name);
 					break;
 				default:
-					r_io_map_set_name (map, r_str_trim_ro (input + 3));
+					r_io_map_set_name (map, r_str_trim_head_ro (input + 3));
 					break;
 				}
 			}
@@ -813,11 +825,12 @@ static void cmd_open_map(RCore *core, const char *input) {
 		if (!list) {
 			return;
 		}
-		SdbListIter *iter;
-		RIOMap *map;
-		ls_foreach_prev (core->io->maps, iter, map) {
-			char temp[4];
-			RListInfo *info = r_listinfo_new (map->name, map->itv, map->itv, map->perm, sdb_itoa (map->fd, temp, 10));
+		void **it;
+		r_pvector_foreach_prev (&core->io->maps, it) {
+			RIOMap *map = *it;
+			char temp[32];
+			snprintf (temp, sizeof (temp), "%d", map->fd);
+			RListInfo *info = r_listinfo_new (map->name, map->itv, map->itv, map->perm, temp);
 			if (!info) {
 				break;
 			}
@@ -826,9 +839,11 @@ static void cmd_open_map(RCore *core, const char *input) {
 		RTable *table = r_core_table (core);
 		r_table_visual_list (table, list, core->offset, core->blocksize,
 			r_cons_get_size (NULL), r_config_get_i (core->config, "scr.color"));
-		r_cons_printf ("\n%s\n", r_table_tostring (table));
+		char *tablestr = r_table_tostring (table);
+		r_cons_printf ("\n%s\n", tablestr);
 		r_table_free (table);
 		r_list_free (list);
+		free (tablestr);
 		} break;
 	default:
 	case '?':
@@ -888,11 +903,17 @@ R_API void r_core_file_reopen_in_malloc(RCore *core) {
 }
 
 static RList *__save_old_sections(RCore *core) {
-	// Do I really need this?
 	RList *sections = r_bin_get_sections (core->bin);
 	RListIter *it;
 	RBinSection *sec;
 	RList *old_sections = r_list_new ();
+
+	// Return an empty list
+	if (!sections) {
+		eprintf ("WARNING: No sections found, functions and flags won't be rebased");
+		return old_sections;
+	}
+
 	old_sections->free = sections->free;
 	r_list_foreach (sections, it, sec) {
 		RBinSection *old_sec = R_NEW0 (RBinSection);
@@ -967,32 +988,8 @@ static void __rebase_everything(RCore *core, RList *old_sections, ut64 old_base)
 			if (!__is_inside_section (fcn->addr, old_section)) {
 				continue;
 			}
-			RList *var_list = r_anal_var_all_list (core->anal, fcn);
-			RAnalVar *var;
-			r_list_foreach (var_list, ititit, var) {
-				const char *var_access = sdb_fmt ("var.0x%"PFMT64x ".%d.%d.access", var->addr, 1, var->delta);
-				char *access = sdb_get (core->anal->sdb_fcns, var_access, NULL);
-				r_anal_var_delete (core->anal, var->addr, var->kind, 1, var->delta);
-				var->addr += diff;
-				r_anal_var_add (core->anal, var->addr, 1, var->delta, var->kind, var->type, var->size, var->isarg, var->name);
-				var_access = sdb_fmt ("var.0x%"PFMT64x ".%d.%d.access", var->addr, 1, var->delta);
-				sdb_set (core->anal->sdb_fcns, var_access, access, NULL);
-				free (access);
-			}
-			r_list_free (var_list);
-			r_anal_fcn_tree_delete (core->anal, fcn);
-			fcn->addr += diff;
-			if (fcn->meta.max) {
-				fcn->meta.max += diff;
-			}
-			if (fcn->meta.min) {
-				fcn->meta.min += diff;
-			}
-			int j;
-			for (j = 0; j < fcn->bbr.pairs * 2; j++) {
-				fcn->bbr.ranges[j] += diff;
-			}
-			r_anal_fcn_tree_insert (core->anal, fcn);
+				r_anal_function_rebase_vars (core->anal, fcn);
+			r_anal_function_relocate (fcn, fcn->addr + diff);
 			RAnalBlock *bb;
 			ut64 new_sec_addr = new_base + old_section->vaddr;
 			r_list_foreach (fcn->bbs, ititit, bb) {
@@ -1000,7 +997,7 @@ static void __rebase_everything(RCore *core, RList *old_sections, ut64 old_base)
 					// Todo: Find better way to check if bb was already rebased
 					continue;
 				}
-				bb->addr += diff;
+				r_anal_block_relocate (bb, bb->addr + diff, bb->size);
 				if (bb->jump != UT64_MAX) {
 					bb->jump += diff;
 				}
@@ -1045,7 +1042,7 @@ static void __rebase_everything(RCore *core, RList *old_sections, ut64 old_base)
 	ht_up_free (old_xrefs);
 
 	// BREAKPOINTS
-	r_debug_bp_rebase (core->dbg, new_base);
+	r_debug_bp_rebase (core->dbg, old_base, new_base);
 }
 
 R_API void r_core_file_reopen_remote_debug(RCore *core, char *uri, ut64 addr) {
@@ -1083,6 +1080,7 @@ R_API void r_core_file_reopen_remote_debug(RCore *core, char *uri, ut64 addr) {
 		r_core_bin_load (core, uri, addr);
 	} else {
 		eprintf ("cannot open file %s\n", uri);
+		r_list_free (old_sections);
 		return;
 	}
 	r_core_block_read (core);
@@ -1341,7 +1339,7 @@ static int cmd_open(void *data, const char *input) {
 #if 1
 	// XXX projects use the of command, but i think we should deprecate it... keeping it for now
 	case 'f': // "of"
-		ptr = r_str_trim_ro (input + 2);
+		ptr = r_str_trim_head_ro (input + 2);
 		argv = r_str_argv (ptr, &argc);
 		if (argc == 0) {
 			eprintf ("Usage: of [filename] (rwx)\n");
@@ -1361,7 +1359,7 @@ static int cmd_open(void *data, const char *input) {
 				input++;
 			}
 			addr = 0; // honor bin.baddr ?
-			const char *argv0 = r_str_trim_ro (input + 2);
+			const char *argv0 = r_str_trim_head_ro (input + 2);
 			if ((file = r_core_file_open (core, argv0, perms, addr))) {
 				fd = file->fd;
 				if (!silence) {
@@ -1404,6 +1402,7 @@ static int cmd_open(void *data, const char *input) {
 		break;
 	case '+': // "o+"
 		perms |= R_PERM_W;
+		/* fallthrough */
 	case ' ': // "o" "o "
 		ptr = input + 1;
 		argv = r_str_argv (ptr, &argc);
@@ -1413,6 +1412,8 @@ static int cmd_open(void *data, const char *input) {
 			return 0;
 		}
 		if (argv) {
+			// Unescape spaces from the path
+			r_str_path_unescape (argv[0]);
 			if (argc == 2) {
 				if (r_num_is_valid_input (core->num, argv[1])) {
 					addr = r_num_math (core->num, argv[1]);
@@ -1434,6 +1435,20 @@ static int cmd_open(void *data, const char *input) {
 					addr = UT64_MAX;
 				}
 				r_core_bin_load (core, argv0, addr);
+				if (*input == '+') { // "o+"
+					RIODesc *desc = r_io_desc_get (core->io, fd);
+					if (desc && (desc->perm & R_PERM_W)) {
+						void **it;
+						r_pvector_foreach_prev (&core->io->maps, it) {
+							RIOMap *map = *it;
+							if (map->fd == fd) {
+								map->perm |= R_PERM_WX;
+							}
+						}
+					} else {
+						eprintf ("Error: %s is not writable\n", argv0);
+					}
+				}
 			} else {
 				eprintf ("cannot open file %s\n", argv0);
 			}
@@ -1585,7 +1600,7 @@ static int cmd_open(void *data, const char *input) {
 			{
 				int fd = (int)r_num_math (core->num, input + 1);
 				if (!r_core_file_close_fd (core, fd)) {
-					eprintf ("Unable to find filedescriptor %d\n", fd);
+					eprintf ("Unable to find file descriptor %d\n", fd);
 				}
 			}
 			break;
@@ -1616,16 +1631,24 @@ static int cmd_open(void *data, const char *input) {
 			if (len < 1) {
 				len = core->blocksize;
 			}
-                        char *uri = r_str_newf ("malloc://%d", len);
+			char *uri = r_str_newf ("malloc://%d", len);
 			ut8 *data = calloc (len, 1);
 			r_io_read_at (core->io, core->offset, data, len);
-                        RIODesc *fd = r_io_open (core->io, uri, R_PERM_R | R_PERM_W, 0);
-                        if (fd) {
-                                r_io_desc_write (fd, data, len);
-                        }
+			if ((file = r_core_file_open (core, uri, R_PERM_RWX, 0))) {
+				fd = file->fd;
+				core->num->value = fd;
+				r_core_bin_load (core, uri, 0);
+				RIODesc *desc = r_io_desc_get (core->io, fd);
+				if (desc) {
+					// TODO: why r_io_desc_write() fails?
+					r_io_desc_write_at (desc, 0, data, len);
+				}
+			} else {
+				eprintf ("Cannot %s\n", uri);
+			}
 			free (uri);
 			free (data);
-                }
+		}
 		break;
 	case 'm': // "om"
 		cmd_open_map (core, input);
@@ -1680,9 +1703,8 @@ static int cmd_open(void *data, const char *input) {
 				}
 				perms = (input[3] == '+')? R_PERM_R|R_PERM_W: 0;
 				r_core_file_reopen (core, input + 4, perms, 0);
-				// TODO: Use API instead of !rabin2 -rk
 				if (desc) {
-					r_core_cmdf (core, ".!rabin2 -rk '' '%s'", desc->name);
+					r_core_bin_load_structs (core, desc->name);
 				}
 			} else if ('?' == input[2]) {
 				r_core_cmd_help (core, help_msg_oon);
@@ -1705,9 +1727,9 @@ static int cmd_open(void *data, const char *input) {
 					perms |= core->io->desc->perm;
 				}
 				if (r_io_reopen (core->io, fd, perms, 644)) {
-					SdbListIter *iter;
-					RIOMap *map;
-					ls_foreach_prev (core->io->maps, iter, map) {
+					void **it;
+					r_pvector_foreach_prev (&core->io->maps, it) {
+						RIOMap *map = *it;
 						if (map->fd == fd) {
 							map->perm |= R_PERM_WX;
 						}
@@ -1726,7 +1748,8 @@ static int cmd_open(void *data, const char *input) {
 				if (r_config_get_i (core->config, "cfg.debug")) {
 					RBinFile *bf = r_bin_cur (core->bin);
 					if (bf && r_file_exists (bf->file)) {
-						char *file = strdup (bf->file);
+						// Escape spaces so that o's argv parse will detect the path properly
+						char *file = r_str_path_escape (bf->file);
 						// Backup the baddr and sections that were already rebased to
 						// revert the rebase after the debug session is closed
 						ut64 orig_baddr = core->bin->cur->o->baddr_shift;
@@ -1756,7 +1779,9 @@ static int cmd_open(void *data, const char *input) {
 		}
 		break;
 	case 'c': // "oc"
-		if (input[1] && input[2]) {
+		if (input[1] == '?') {
+			eprintf ("Usage: oc [file]\n");
+		} else if (input[1] && input[2]) {
 			if (r_sandbox_enable (0)) {
 				eprintf ("This command is disabled in sandbox mode\n");
 				return 0;
@@ -1792,6 +1817,7 @@ static int cmd_open(void *data, const char *input) {
 				}
 			}
 			if ((fdx == -1) || (fd == -1) || (fdx == fd)) {
+				free (inp);
 				break;
 			}
 			r_io_desc_exchange (core->io, fd, fdx);

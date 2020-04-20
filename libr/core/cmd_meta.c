@@ -1,4 +1,4 @@
-/* radare2 - LGPL - Copyright 2009-2019 - pancake */
+/* radare2 - LGPL - Copyright 2009-2020 - pancake */
 
 #include "r_anal.h"
 #include "r_bin.h"
@@ -7,6 +7,8 @@
 #include "r_util.h"
 #include "r_types.h"
 #include "sdb/sdb.h"
+
+char *getcommapath(RCore *core);
 
 static const char *help_msg_C[] = {
 	"Usage:", "C[-LCvsdfm*?][*?] [...]", " # Metadata management",
@@ -266,7 +268,7 @@ static int cmd_meta_lineinfo(RCore *core, const char *input) {
 		offset = core->offset;
 	}
 	if (*p == ' ') {
-		p = r_str_trim_ro (p + 1);
+		p = r_str_trim_head_ro (p + 1);
 		char *arg = strchr (p, ' ');
 		if (!arg) {
 			offset = r_num_math (core->num, p);
@@ -290,7 +292,7 @@ static int cmd_meta_lineinfo(RCore *core, const char *input) {
 		return 0;
 	}
 
-	p = r_str_trim_ro (p);
+	p = r_str_trim_head_ro (p);
 	char *myp = strdup (p);
 	char *sp = strchr (myp, ' ');
 	if (sp) {
@@ -365,7 +367,6 @@ static int cmd_meta_comment(RCore *core, const char *input) {
 			if (comment && *comment) {
 				char *cmtfile = r_str_between (comment, ",(", ")");
 				if (cmtfile && *cmtfile) {
-					char *getcommapath(RCore *core);
 					char *cwd = getcommapath (core);
 					r_cons_printf ("%s"R_SYS_DIR"%s\n", cwd, cmtfile);
 					free (cwd);
@@ -444,7 +445,7 @@ static int cmd_meta_comment(RCore *core, const char *input) {
 	case '+':
 	case ' ':
 		{
-		const char* newcomment = r_str_trim_ro (input + 2);
+		const char* newcomment = r_str_trim_head_ro (input + 2);
 		char *text, *comment = r_meta_get_string (core->anal, R_META_TYPE_COMMENT, addr);
 		char *nc = strdup (newcomment);
 		r_str_unescape (nc);
@@ -576,7 +577,7 @@ static int cmd_meta_vartype_comment(RCore *core, const char *input) {
 		break;
 	case ' ': // "Ct <vartype comment> @ addr"
 		{
-		const char* newcomment = r_str_trim_ro (input + 2);
+		const char* newcomment = r_str_trim_head_ro (input + 2);
 		char *text, *comment = r_meta_get_string (core->anal, R_META_TYPE_VARTYPE, addr);
 		char *nc = strdup (newcomment);
 		r_str_unescape (nc);
@@ -629,7 +630,7 @@ static int cmd_meta_others(RCore *core, const char *input) {
 	switch (input[1]) {
 	case '?':
 		switch (input[0]) {
-		case 'f':
+		case 'f': // "Cf?"
 			r_cons_println(
 				"Usage: Cf[-] [sz] [fmt..] [@addr]\n\n"
 				"'sz' indicates the byte size taken up by struct.\n"
@@ -639,7 +640,7 @@ static int cmd_meta_others(RCore *core, const char *input) {
 				"to show the fields you know about (perhaps using 'skip' fields), and 'sz'\n"
 				"to match the total struct size in mem.\n");
 			break;
-		case 's':
+		case 's': // "Cs?"
 			r_core_cmd_help (core, help_msg_Cs);
 			break;
 		default:
@@ -647,9 +648,9 @@ static int cmd_meta_others(RCore *core, const char *input) {
 			break;
 		}
 		break;
-	case '-':
+	case '-': // "Cf-", "Cd-", ...
 		switch (input[2]) {
-		case '*':
+		case '*': // "Cf-*", "Cd-*", ...
 			core->num->value = r_meta_del (core->anal,
 					input[0], 0, UT64_MAX);
 			break;
@@ -677,13 +678,13 @@ static int cmd_meta_others(RCore *core, const char *input) {
 			break;
 		}
 		break;
-	case '*':
+	case '*': // "Cf*", "Cd*", ...
 		r_meta_list (core->anal, input[0], 1);
 		break;
-	case 'j':
+	case 'j': // "Cfj", "Cdj", ...
 		r_meta_list (core->anal, input[0], 'j');
 		break;
-	case '!':
+	case '!': // "Cf!", "Cd!", ...
 		{
 			char *out, *comment = r_meta_get_string (
 					core->anal, R_META_TYPE_COMMENT, addr);
@@ -698,7 +699,7 @@ static int cmd_meta_others(RCore *core, const char *input) {
 			free (comment);
 		}
 		break;
-	case '.':
+	case '.': // "Cf.", "Cd.", ...
 		if (input[2] == '.') { // "Cs.."
 			RAnalMetaItem *mi = r_meta_find (core->anal, addr, type, R_META_WHERE_HERE);
 			if (mi) {
@@ -755,7 +756,7 @@ static int cmd_meta_others(RCore *core, const char *input) {
 		}
 		free (mi.str);
 		break;
-	case ' ':
+	case ' ': // "Cf", "Cd", ...
 	case '\0':
 	case 'g':
 	case 'a':
@@ -785,7 +786,7 @@ static int cmd_meta_others(RCore *core, const char *input) {
 		}
 		while (repcnt < repeat) {
 			int off = (!input[1] || input[1] == ' ') ? 1 : 2;
-			t = strdup (r_str_trim_ro (input + off));
+			t = strdup (r_str_trim_head_ro (input + off));
 			p = NULL;
 			n = 0;
 			strncpy (name, t, sizeof (name) - 1);
@@ -794,7 +795,7 @@ static int cmd_meta_others(RCore *core, const char *input) {
 				if (type == 'f') { // "Cf"
 					p = strchr (t, ' ');
 					if (p) {
-						p = (char *)r_str_trim_ro (p);
+						p = (char *)r_str_trim_head_ro (p);
 						if (*p == '.') {
 							const char *realformat = r_print_format_byname (core->print, p + 1);
 							if (realformat) {
@@ -824,7 +825,7 @@ static int cmd_meta_others(RCore *core, const char *input) {
 						eprintf ("Usage: Cf [size] [pf-format-string]\n");
 						break;
 					}
-				} else if (type == 's') { //Cs
+				} else if (type == 's') { // "Cs"
 					char tmp[256] = R_EMPTY;
 					int i, j, name_len = 0;
 					if (input[1] == 'a' || input[1] == '8') {
@@ -868,7 +869,7 @@ static int cmd_meta_others(RCore *core, const char *input) {
 					p = strchr (t, ' ');
 					if (p) {
 						*p++ = '\0';
-						p = (char *)r_str_trim_ro (p);
+						p = (char *)r_str_trim_head_ro (p);
 						strncpy (name, p, sizeof (name)-1);
 					} else {
 						if (type != 's') {
@@ -980,7 +981,7 @@ void r_comment_vars(RCore *core, const char *input) {
 				comment = heap_comment;
 			}
 		}
-		var = r_anal_var_get_byname (core->anal, fcn->addr, name);
+		var = r_anal_function_get_var_byname (fcn, name);
 		if (var) {
 			idx = var->delta;
 		} else if (!strncmp (name, "0x", 2))  {
@@ -992,8 +993,7 @@ void r_comment_vars(RCore *core, const char *input) {
 			free (heap_comment);
 			break;
 		}
-		r_anal_var_free (var);
-		if (!r_anal_var_get (core->anal, fcn->addr, input[0], 1, idx)) {
+		if (!r_anal_function_get_var (fcn, input[0], idx)) {
 			eprintf ("can't find variable at given offset\n");
 		} else {
 			oldcomment = r_meta_get_var_comment (core->anal, input[0], idx, fcn->addr);
@@ -1013,7 +1013,7 @@ void r_comment_vars(RCore *core, const char *input) {
 		}
 		break;
 	case '-': // "Cv-"
-		var = r_anal_var_get_byname (core->anal, fcn->addr, name);
+		var = r_anal_function_get_var_byname(fcn, name);
 		if (var) {
 			idx = var->delta;
 		} else if (!strncmp (name, "0x", 2)) {
@@ -1024,9 +1024,7 @@ void r_comment_vars(RCore *core, const char *input) {
 			eprintf ("can't find variable named `%s`\n",name);
 			break;
 		}
-		r_anal_var_free (var);
-		//XXX TODO here we leak a var
-		if (!r_anal_var_get (core->anal, fcn->addr, input[0],1,idx)) {
+		if (!r_anal_function_get_var (fcn, input[0], idx)) {
 			eprintf ("can't find variable at given offset\n");
 			break;
 		}
@@ -1034,7 +1032,7 @@ void r_comment_vars(RCore *core, const char *input) {
 		break;
 	case '!': { // "Cv!"
 		char *comment;
-		var = r_anal_var_get_byname (core->anal, fcn->addr, name);
+		var = r_anal_function_get_var_byname (fcn, name);
 		if (!var) {
 			eprintf ("can't find variable named `%s`\n",name);
 			break;
@@ -1046,7 +1044,6 @@ void r_comment_vars(RCore *core, const char *input) {
 			r_meta_set_var_comment (core->anal, input[0], var->delta, fcn->addr, comment);
 			free (comment);
 		}
-		r_anal_var_free (var);
 		}
 		break;
 	}
